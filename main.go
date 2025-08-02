@@ -274,7 +274,7 @@ func Upload(token string, name []string) error {
 	}
 
 	reqBody, _ := json.Marshal(UploadRequest{
-		DstDir: config.UploadPath + previousDay.Format("2006/01/02"),
+		DstDir: *AlistUploadpath + previousDay.Format("2006/01/02"),
 		Names:  name,
 		SrcDir: config.XiaomiCameraVideosPath,
 	})
@@ -332,24 +332,25 @@ func filterList(A, B, C []string) []string {
 }
 
 var previousDay time.Time
+var AlistUploadpath *string
 
 func main() {
-	day := flag.Int("d", 1, "上传前多少天的视频，默认前1天") // 参数名，默认值，描述
-	flag.Parse()
-	previousDay = time.Now().AddDate(0, 0, -*day) // 使用 -*day 获取前几天的日期
-	fmt.Println(previousDay.Format("2006-01-02"))
 	err := loadConfig("config.yaml")
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
-
+	day := flag.Int("d", 1, "上传前多少天的视频，默认前1天") // 参数名，默认值，描述
+	AlistUploadpath = flag.String("p", config.UploadPath, "上传路径")
+	flag.Parse()
+	previousDay = time.Now().AddDate(0, 0, -*day) // 使用 -*day 获取前几天的日期
+	fmt.Println(previousDay.Format("2006-01-02"))
 	// 获取token
 	token, err := Login(config.Username, config.Password)
 	if err != nil {
 		return
 	}
 
-	if !Mkdir(token, config.UploadPath+previousDay.Format("2006/01/02")) {
+	if !Mkdir(token, *AlistUploadpath+previousDay.Format("2006/01/02")) {
 		fmt.Println("创建文件夹失败")
 		return
 	}
@@ -364,7 +365,7 @@ func main() {
 	previousDayLocalFilesList := getDayFile(LocalFilesList)
 
 	// 获取已经上传过的文件
-	Cloud, err := GetVideosList(token, config.UploadPath+previousDay.Format("2006/01/02"), "", 1, 0, true)
+	Cloud, err := GetVideosList(token, *AlistUploadpath+previousDay.Format("2006/01/02"), "", 1, 0, true)
 
 	if err != nil {
 		fmt.Println(err)
