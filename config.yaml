@@ -1,0 +1,5 @@
+openlist: http://127.0.0.1:15244
+username: admin
+password: admin
+xiaomiCameraVideosPath: /smb/xiaomi_camera_videos/E4AABBC41206/
+uploadPath: /wo/xiaomi_camera_videos/
