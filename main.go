@@ -331,6 +331,44 @@ func filterList(A, B, C []string) []string {
 	return result
 }
 
+func remove(token, dir string, names []string) error {
+	type Response struct {
+		Code    int64  `json:"code"`
+		Data    string `json:"data"`
+		Message string `json:"message"`
+	}
+
+	type Remove struct {
+		Dir   string   `json:"dir"`
+		Names []string `json:"names"`
+	}
+
+	reqBody, _ := json.Marshal(Remove{
+		Dir:   dir,
+		Names: names,
+	})
+
+	respStr, err := Send("/api/fs/remove", string(reqBody), token, "POST")
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var respJson Response
+	err = json.Unmarshal([]byte(respStr), &respJson)
+	if err != nil {
+		fmt.Println("解析 JSON 出错:", err)
+		return err
+	}
+	// 判断 code
+	if respJson.Code == 200 {
+		return nil
+	} else {
+		fmt.Printf("删除视频失败，code = %d，message = %s\n", respJson.Code, respJson.Message)
+		return errors.New(respJson.Message)
+	}
+
+}
+
 var previousDay time.Time
 var AlistUploadpath *string
 
@@ -340,6 +378,7 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 	day := flag.Int("d", 1, "上传前多少天的视频，默认前1天") // 参数名，默认值，描述
+	isRemove := flag.String("r", "n", "删除某一天的视频，y为删除，默认为n")
 	AlistUploadpath = flag.String("p", config.UploadPath, "上传路径")
 	flag.Parse()
 	previousDay = time.Now().AddDate(0, 0, -*day) // 使用 -*day 获取前几天的日期
@@ -380,6 +419,14 @@ func main() {
 	fmt.Println("已上传视频文件数:", len(CloudFilesList))
 	if len(previousDayLocalFilesList) == len(CloudFilesList) {
 		fmt.Println("所有视频均以上传")
+		if *isRemove == "y" {
+			eer := remove(token, config.XiaomiCameraVideosPath, CloudFilesList)
+			if eer != nil {
+				fmt.Println(eer)
+			} else {
+				fmt.Println("删除视频成功")
+			}
+		}
 		return
 	}
 

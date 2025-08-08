@@ -15,3 +15,5 @@
 -d 上传前几天的视频如 ./main -d 1 表示上传前一天即昨天的视频，不填默认为1
 
 -p 上传到Alist/Openlist的路径如 ./mian -p "/doubao/videos/"，不填默认使用config.yaml的uploadPath内容
+
+-r 当值为y时，如果当天视频全部上传完成则删除当天视频，默认为n。当值为y不会进行上传操作
