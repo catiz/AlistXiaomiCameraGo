@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -10,8 +13,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -21,6 +26,9 @@ type Configs struct {
 	Password               string `yaml:"password"`
 	XiaomiCameraVideosPath string `yaml:"xiaomiCameraVideosPath"`
 	UploadPath             string `yaml:"uploadPath"`
+	DingDingURL            string `yaml:"DingDingURL"`
+	DingDingSign           string `yaml:"DingDingSign"`
+	WarningTime            int    `yaml:"WarningTime"`
 }
 
 type GetFileList struct {
@@ -34,6 +42,12 @@ type GetFileList struct {
 type FilesContent struct {
 	Name string `json:"name"`
 	Size int64  `json:"size,omitempty"`
+}
+
+type Response struct {
+	Code    int64          `json:"code"`
+	Data    []FilesContent `json:"data"`
+	Message string         `json:"message"`
 }
 
 var config Configs
@@ -232,12 +246,6 @@ func getDayFile(files []FilesContent) []string {
 }
 
 func getUploadingFiles(token string) ([]FilesContent, error) {
-	type Response struct {
-		Code    int64          `json:"code"`
-		Data    []FilesContent `json:"data"`
-		Message string         `json:"message"`
-	}
-
 	respStr, err := Send("/api/admin/task/copy/undone", "", token, "GET")
 	if err != nil {
 		return nil, err
@@ -369,6 +377,79 @@ func remove(token, dir string, names []string) error {
 
 }
 
+func clearDone(token string) error {
+	ClearRespStr, err := Send("/api/admin/task/copy/clear_done", "", token, "POST")
+	if err != nil {
+		return err
+	}
+
+	var respJson Response
+	err = json.Unmarshal([]byte(ClearRespStr), &respJson)
+	if err != nil {
+		fmt.Println("解析 JSON 出错:", err)
+		return err
+	}
+	// 判断 code
+	if respJson.Code == 200 {
+		return nil
+	} else {
+		fmt.Printf("获取正在上传请求失败，code = %d，message = %s\n", respJson.Code, respJson.Message)
+		return errors.New(respJson.Message)
+	}
+}
+
+// IsAfter 判断当前时间是否大于警告时间
+func IsAfter() bool {
+	now := time.Now()
+	target := time.Date(now.Year(), now.Month(), now.Day(), config.WarningTime, 0, 0, 0, now.Location())
+	return now.After(target) || now.Equal(target)
+}
+
+func SendDingTalkMessage(content string) error {
+	timestamp := time.Now().UnixNano() / 1e6 // 毫秒时间戳
+
+	// 拼接字符串：timestamp + "\n" + Sign
+	stringToSign := fmt.Sprintf("%d\n%s", timestamp, config.DingDingSign)
+
+	// HMAC-SHA256 签名
+	h := hmac.New(sha256.New, []byte(config.DingDingSign))
+	h.Write([]byte(stringToSign))
+	signData := h.Sum(nil)
+
+	// Base64 编码并 URL encode
+	sign := url.QueryEscape(base64.StdEncoding.EncodeToString(signData))
+
+	// 拼接完整 URL
+	fullURL := fmt.Sprintf("%s&timestamp=%d&sign=%s", config.DingDingURL, timestamp, sign)
+
+	// 构造请求 body
+	body := map[string]interface{}{
+		"msgtype": "text",
+		"text": map[string]string{
+			"content": content,
+		},
+	}
+	jsonData, _ := json.Marshal(body)
+	// 发送 HTTP POST 请求
+
+	resp, err := http.Post(fullURL, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("发送失败, HTTP状态码: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 var previousDay time.Time
 var AlistUploadpath *string
 
@@ -389,11 +470,6 @@ func main() {
 		return
 	}
 
-	if !Mkdir(token, *AlistUploadpath+previousDay.Format("2006/01/02")) {
-		fmt.Println("创建文件夹失败")
-		return
-	}
-
 	//获取本地小米监控视频文件列表
 	LocalFilesList, err := GetVideosList(token, config.XiaomiCameraVideosPath, "", 1, 0, true)
 	if err != nil {
@@ -402,6 +478,26 @@ func main() {
 	}
 	// 筛选需要上传日期的视频文件
 	previousDayLocalFilesList := getDayFile(LocalFilesList)
+	if len(previousDayLocalFilesList) == 0 {
+		DingStr := "日期：" + previousDay.Format("2006/01/02") + "\n无视频文件，请检查：当天视频已删除、摄像机写入出错、SMB服务出错、Alist服务出错或其他原因"
+		err := SendDingTalkMessage(DingStr)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println("当前日期无视频文件，请检查：当天视频已删除、摄像机写入出错、SMB服务出错、Alist服务出错或其他原因")
+		return
+	}
+
+	if !Mkdir(token, *AlistUploadpath+previousDay.Format("2006/01/02")) {
+		fmt.Println("创建文件夹失败")
+		return
+	}
+
+	// 清除历史任务
+	err = clearDone(token)
+	if err != nil {
+		fmt.Println("[Warning]历史任务清楚失败:", err)
+	}
 
 	// 获取已经上传过的文件
 	Cloud, err := GetVideosList(token, *AlistUploadpath+previousDay.Format("2006/01/02"), "", 1, 0, true)
@@ -428,6 +524,14 @@ func main() {
 			}
 		}
 		return
+	}
+
+	if IsAfter() {
+		DingStr := "日期：" + previousDay.Format("2006/01/02") + "\n目前仍有" + strconv.Itoa(len(previousDayLocalFilesList)-len(CloudFilesList)) + "个视频未上传成功\n请手动查看"
+		err := SendDingTalkMessage(DingStr)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 	// 获取正在上传中的文件
