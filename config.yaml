@@ -3,3 +3,6 @@ username: admin
 password: admin
 xiaomiCameraVideosPath: /smb/xiaomi_camera_videos/E4AABBC41206/
 uploadPath: /wo/xiaomi_camera_videos/
+DingDingURL: https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxxxxxxxxxxxxxxx
+DingDingSign: SECxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+WarningTime: 18
