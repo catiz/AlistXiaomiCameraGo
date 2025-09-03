@@ -478,15 +478,6 @@ func main() {
 	}
 	// 筛选需要上传日期的视频文件
 	previousDayLocalFilesList := getDayFile(LocalFilesList)
-	if len(previousDayLocalFilesList) == 0 {
-		DingStr := "日期：" + previousDay.Format("2006/01/02") + "\n无视频文件，请检查：当天视频已删除、摄像机写入出错、SMB服务出错、Alist服务出错或其他原因"
-		err := SendDingTalkMessage(DingStr)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println("当前日期无视频文件，请检查：当天视频已删除、摄像机写入出错、SMB服务出错、Alist服务出错或其他原因")
-		return
-	}
 
 	if !Mkdir(token, *AlistUploadpath+previousDay.Format("2006/01/02")) {
 		fmt.Println("创建文件夹失败")
