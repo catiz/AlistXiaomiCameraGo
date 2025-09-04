@@ -52,7 +52,7 @@ type Response struct {
 
 var config Configs
 
-// 读取配置文件
+// loadConfig 读取配置文件
 func loadConfig(filename string) error {
 	// 读取配置文件内容
 	configData, err := os.ReadFile(filename)
@@ -69,6 +69,7 @@ func loadConfig(filename string) error {
 	return nil
 }
 
+// Send 发送GET/POST请求
 func Send(url, jsonStr, token, method string) (string, error) {
 	req, err := http.NewRequest(method, config.Openlist+url, bytes.NewBuffer([]byte(jsonStr)))
 	if err != nil {
@@ -98,6 +99,7 @@ func Send(url, jsonStr, token, method string) (string, error) {
 	return string(body), nil
 }
 
+// Login Alist登录获取token接口
 func Login(username string, password string) (string, error) {
 	type Response struct {
 		Code    int    `json:"code"`
@@ -142,6 +144,7 @@ func Login(username string, password string) (string, error) {
 
 }
 
+// Mkdir Alist创建文件夹接口
 func Mkdir(token, path string) bool {
 	type Response struct {
 		Code    int    `json:"code"`
@@ -179,6 +182,7 @@ func Mkdir(token, path string) bool {
 	}
 }
 
+// GetVideosList Alist获取文件列表接口
 func GetVideosList(token, path, password string, page, perPage int64, refresh bool) ([]FilesContent, error) {
 	type Response struct {
 		Code int64 `json:"code"`
@@ -217,6 +221,7 @@ func GetVideosList(token, path, password string, page, perPage int64, refresh bo
 
 }
 
+// isPreviousDay 过滤指定日期的文件名
 func isPreviousDay(filename, previousDay string) bool {
 	re := regexp.MustCompile(`00_(\d{8})\d{6}_`)
 	matches := re.FindStringSubmatch(filename)
@@ -230,6 +235,7 @@ func isPreviousDay(filename, previousDay string) bool {
 	return fileDate == previousDay
 }
 
+// getDayFile 获取监控视频的文件名
 func getDayFile(files []FilesContent) []string {
 	var dayFiles []string
 	for _, file := range files {
@@ -245,6 +251,7 @@ func getDayFile(files []FilesContent) []string {
 	return dayFiles
 }
 
+// getUploadingFiles 获取正在上传的文件
 func getUploadingFiles(token string) ([]FilesContent, error) {
 	respStr, err := Send("/api/admin/task/copy/undone", "", token, "GET")
 	if err != nil {
@@ -267,6 +274,7 @@ func getUploadingFiles(token string) ([]FilesContent, error) {
 
 }
 
+// Upload 上传指定文件
 func Upload(token string, name []string) error {
 	type Response struct {
 		Code    int64  `json:"code"`
@@ -307,38 +315,7 @@ func Upload(token string, name []string) error {
 	}
 }
 
-func filterList(A, B, C []string) []string {
-	// 创建map来提高查找效率
-	aMap := make(map[string]struct{})
-	for _, item := range A {
-		aMap[item] = struct{}{}
-	}
-
-	// 创建一个集合来存储要删除的元素
-	toDelete := make(map[string]struct{})
-	for _, item := range B {
-		if _, found := aMap[item]; found {
-			toDelete[item] = struct{}{}
-		}
-	}
-	for _, item := range C {
-		if _, found := aMap[item]; found {
-			toDelete[item] = struct{}{}
-		}
-	}
-
-	// 生成新的A列表，删除要删除的元素
-	var result []string
-	for _, item := range A {
-		if _, found := toDelete[item]; !found {
-			result = append(result, item)
-		}
-	}
-
-	// 返回新的A列表
-	return result
-}
-
+// remove 删除指定文件
 func remove(token, dir string, names []string) error {
 	type Response struct {
 		Code    int64  `json:"code"`
@@ -377,6 +354,7 @@ func remove(token, dir string, names []string) error {
 
 }
 
+// clearDone 清除执行完上传的任务记录
 func clearDone(token string) error {
 	ClearRespStr, err := Send("/api/admin/task/copy/clear_done", "", token, "POST")
 	if err != nil {
@@ -398,6 +376,31 @@ func clearDone(token string) error {
 	}
 }
 
+// Diff 求两个列表的差集
+func Diff(A, B []string) []string {
+	if len(A) == 0 {
+		return nil
+	}
+	if len(B) == 0 {
+		return append([]string(nil), A...)
+	}
+
+	// 用 map 存 B，查找 O(1)
+	block := make(map[string]struct{}, len(B))
+	for _, s := range B {
+		block[s] = struct{}{}
+	}
+
+	// 遍历 A，保留不在 B 中的元素
+	res := make([]string, 0, len(A))
+	for _, s := range A {
+		if _, found := block[s]; !found {
+			res = append(res, s)
+		}
+	}
+	return res
+}
+
 // IsAfter 判断当前时间是否大于警告时间
 func IsAfter() bool {
 	now := time.Now()
@@ -405,6 +408,7 @@ func IsAfter() bool {
 	return now.After(target) || now.Equal(target)
 }
 
+// SendDingTalkMessage 发送钉钉提醒
 func SendDingTalkMessage(content string) error {
 	timestamp := time.Now().UnixNano() / 1e6 // 毫秒时间戳
 
@@ -504,10 +508,12 @@ func main() {
 
 	fmt.Println("当天产生视频文件数:", len(previousDayLocalFilesList))
 	fmt.Println("已上传视频文件数:", len(CloudFilesList))
-	if len(previousDayLocalFilesList) == len(CloudFilesList) {
+
+	notUploaded := Diff(previousDayLocalFilesList, CloudFilesList)
+	if len(notUploaded) == 0 {
 		fmt.Println("所有视频均以上传")
-		if *isRemove == "y" {
-			eer := remove(token, config.XiaomiCameraVideosPath, CloudFilesList)
+		if *isRemove == "y" && len(previousDayLocalFilesList) != 0 {
+			eer := remove(token, config.XiaomiCameraVideosPath, previousDayLocalFilesList)
 			if eer != nil {
 				fmt.Println(eer)
 			} else {
@@ -545,7 +551,7 @@ func main() {
 		}
 	}
 
-	UploadFliesList := filterList(previousDayLocalFilesList, CloudFilesList, dayUploadingFiles)
+	UploadFliesList := Diff(notUploaded, dayUploadingFiles)
 
 	if len(dayUploadingFiles) != 0 {
 		fmt.Println("正在上传当天视频文件数:", len(dayUploadingFiles))
